@@ -78,7 +78,7 @@ module axi_adapter
     logic addr_blocked;
 
     //AR
-    assign axi.arvalid = request_valid & request_rnw & ~addr_blocked;
+    assign axi.arvalid = request_valid & request_rnw & ~addr_blocked & ~next_clock_after_address_send;
     assign axi.araddr = {request_addr[31:7], request_addr[6:2] & ~request_rlen, 2'b00};
     assign axi.arlen = {3'b0, request_rlen};
     assign axi.arsize = 3'b010; //4 bytes
@@ -109,7 +109,7 @@ module axi_adapter
     end
 
     //AW
-    assign axi.awvalid = request_valid & ~request_rnw & ~sent_aw & ~addr_blocked;
+    assign axi.awvalid = request_valid & ~request_rnw & ~sent_aw & ~addr_blocked & ~next_clock_after_address_send;
     assign axi.awaddr = {request_addr, 2'b00};
     assign axi.awlen = '0;
     assign axi.awsize = 3'b010; //4 bytes
@@ -139,12 +139,25 @@ module axi_adapter
 
     //Free slots
     logic[MAX_OUTSTANDING-1:0] frees;
-    index_t free_index;
+    index_t free_index,free_index_reg;
+    logic next_clock_after_address_send;
 
     priority_encoder #(.WIDTH(MAX_OUTSTANDING)) free_enc (
         .priority_vector(frees),
         .encoded_result(free_index)
     );
+
+
+    always_ff @(posedge clk)begin
+        if(axi.awvalid & axi.awready | axi.arvalid & axi.arready)begin
+            next_clock_after_address_send <= 1;
+        end else begin
+            next_clock_after_address_send <= 0;
+        end
+        if(next_clock_after_address_send)begin
+            free_index_reg <= free_index;
+        end
+    end
 
     always_ff @(posedge clk) begin
         if (rst)
@@ -155,15 +168,15 @@ module axi_adapter
             if (axi.bvalid)
                 frees[axi.bid[MAX_W-1:0]] <= 1;
             if ((axi.awvalid & axi.awready) | (axi.arvalid & axi.arready))
-                frees[free_index] <= 0;
+                frees[free_index_reg] <= 0;
         end
     end
 
     always_comb begin
         axi.arid = '0;
         axi.awid = '0;
-        axi.arid[MAX_W-1:0] = free_index;
-        axi.awid[MAX_W-1:0] = free_index;
+        axi.arid[MAX_W-1:0] = free_index_reg;
+        axi.awid[MAX_W-1:0] = free_index_reg;
     end
 
     //Outstanding storage
@@ -180,12 +193,12 @@ module axi_adapter
     
     always_ff @(posedge clk) begin
         if ((axi.awvalid & axi.awready) | (axi.arvalid & axi.arready)) begin
-            rnws[free_index] <= request_rnw;
-            lowers[free_index] <= request_lower;
-            uppers[free_index] <= request_upper;
-            wbes[free_index] <= request_wbe;
-            ids[free_index] <= request_id;
-            hashes[free_index] <= request_hash;
+            rnws[free_index_reg] <= request_rnw;
+            lowers[free_index_reg] <= request_lower;
+            uppers[free_index_reg] <= request_upper;
+            wbes[free_index_reg] <= request_wbe;
+            ids[free_index_reg] <= request_id;
+            hashes[free_index_reg] <= request_hash;
         end
     end
 
@@ -216,7 +229,7 @@ module axi_adapter
         for (int i = 0; i < MAX_OUTSTANDING; i++) begin
             hash_collision[i] = ~frees[i] & request_hash == hashes[i];
             if (request_rnw) begin
-                range_collision[i] = (axi.araddr[7:2] <= lowers[i]) & (axi.araddr[7:2] + {1'b0, request_rlen} >= uppers[i]);
+                range_collision[i] = ~((uppers[i] < axi.araddr[7:2]) | (axi.araddr[7:2] + {1'b0, request_rlen} < lowers[i]));
                 wbe_collision[i] = ~rnws[i];
             end
             else begin
