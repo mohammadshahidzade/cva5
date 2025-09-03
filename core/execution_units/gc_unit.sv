@@ -380,7 +380,9 @@ generate if (CONFIG.MODES != BARE) begin : gen_gc_m_mode
     assign gc.exception.valid = |exception_valid;
     assign gc.exception.source = exception_valid;
 
-    assign interrupt_taken = interrupt_pending & (state == WAIT_INTERRUPT) & (next_state == PRE_ISSUE_FLUSH) & ~gc.exception.valid & ~csr_frontend_flush;
+    // leads to problem when not using the plic the CPU would get stuck: TODO: check the problem in this case.
+    // assign interrupt_taken = interrupt_pending & (state == WAIT_INTERRUPT) & (next_state == PRE_ISSUE_FLUSH) & ~gc.exception.valid & ~csr_frontend_flush;
+    assign interrupt_taken = interrupt_pending & (next_state == PRE_ISSUE_FLUSH) & ~(gc.exception.valid) & ~csr_frontend_flush & ~(issue.new_request & ~is_wfi & ~new_exception);
     //Writeback and rename handling
     logic gc_writeback_suppress_r;
     logic gc_rename_revert;
