@@ -78,7 +78,7 @@ module axi_adapter
     logic addr_blocked;
 
     //AR
-    assign axi.arvalid = request_valid & request_rnw & ~addr_blocked & ~next_clock_after_address_send;
+    assign axi.arvalid = request_valid & request_rnw & ~addr_blocked & ~delayed_address & (free_index_reg < MAX_OUTSTANDING-1);
     assign axi.araddr = {request_addr[31:7], request_addr[6:2] & ~request_rlen, 2'b00};
     assign axi.arlen = {3'b0, request_rlen};
     assign axi.arsize = 3'b010; //4 bytes
@@ -109,7 +109,7 @@ module axi_adapter
     end
 
     //AW
-    assign axi.awvalid = request_valid & ~request_rnw & ~sent_aw & ~addr_blocked & ~next_clock_after_address_send;
+    assign axi.awvalid = request_valid & ~request_rnw & ~sent_aw & ~addr_blocked & ~delayed_address & (free_index_reg < MAX_OUTSTANDING-1);
     assign axi.awaddr = {request_addr, 2'b00};
     assign axi.awlen = '0;
     assign axi.awsize = 3'b010; //4 bytes
@@ -140,7 +140,7 @@ module axi_adapter
     //Free slots
     logic[MAX_OUTSTANDING-1:0] frees;
     index_t free_index,free_index_reg;
-    logic next_clock_after_address_send;
+    logic delayed_address;
 
     priority_encoder #(.WIDTH(MAX_OUTSTANDING)) free_enc (
         .priority_vector(frees),
@@ -150,11 +150,11 @@ module axi_adapter
 
     always_ff @(posedge clk)begin
         if(axi.awvalid & axi.awready | axi.arvalid & axi.arready)begin
-            next_clock_after_address_send <= 1;
+            delayed_address <= 1;
         end else begin
-            next_clock_after_address_send <= 0;
+            delayed_address <= 0;
         end
-        if(next_clock_after_address_send)begin
+        if(delayed_address | ~(axi.arvalid | axi.awvalid))begin
             free_index_reg <= free_index;
         end
     end
