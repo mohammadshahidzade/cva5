@@ -78,7 +78,11 @@ module gc_unit
         output tlb_packet_t sfence,
 
         //Ordering support
-        input load_store_status_t load_store_status
+        input load_store_status_t load_store_status,
+
+        //WFI support
+        output logic wfi_accepted,
+        input logic wfi_resumed
     );
 
     //Largest depth for TLBs
@@ -119,7 +123,7 @@ module gc_unit
     //LS exceptions (miss-aligned, TLB and MMU) (issue stage)
     //fetch flush, take exception. If execute or later exception occurs first, exception is overridden
     common_instruction_t instruction;//rs1_addr, rs2_addr, fn3, fn7, rd_addr, upper/lower opcode
-    typedef enum {RST_STATE, PRE_CLEAR_STATE, INIT_CLEAR_STATE, IDLE_STATE, TLB_CLEAR_STATE, WAIT_INTERRUPT, PRE_ISSUE_FLUSH, WAIT_WRITE} gc_state;
+    typedef enum {RST_STATE, PRE_CLEAR_STATE, INIT_CLEAR_STATE, IDLE_STATE, TLB_CLEAR_STATE, WAIT_INTERRUPT, PRE_ISSUE_FLUSH, WAIT_WRITE,WFI_STATE} gc_state;
     gc_state state;
     gc_state next_state;
 
@@ -172,7 +176,7 @@ module gc_unit
             is_sfence <= CONFIG.MODES == MSU & ~instruction.upper_opcode[2] & instruction.fn7[0];
             trivial_sfence <= |instruction.rs1_addr;
             asid_sfence <= |instruction.rs2_addr;
-            is_wfi <= CONFIG.MODES != BARE & ~instruction.upper_opcode[2] & ~instruction.fn7[0] & ~instruction.rs2_addr[1];
+            is_wfi <= CONFIG.MODES != BARE & instruction inside {WFI};
             //Ret instructions need exact decoding
             is_mret <= CONFIG.MODES != BARE & instruction inside {MRET};
             is_sret <= CONFIG.MODES == MSU & instruction inside {SRET};
@@ -251,8 +255,8 @@ module gc_unit
     assign gc.fetch_flush = branch_flush | gc_pc_override;
 
     always_ff @ (posedge clk) begin
-        gc_fetch_hold <= next_state inside {PRE_CLEAR_STATE, INIT_CLEAR_STATE, PRE_ISSUE_FLUSH, TLB_CLEAR_STATE, WAIT_WRITE};
-        gc_issue_hold <= next_state inside {PRE_CLEAR_STATE, INIT_CLEAR_STATE, WAIT_INTERRUPT, PRE_ISSUE_FLUSH, TLB_CLEAR_STATE, WAIT_WRITE};
+        gc_fetch_hold <= next_state inside {PRE_CLEAR_STATE, INIT_CLEAR_STATE, PRE_ISSUE_FLUSH, TLB_CLEAR_STATE, WAIT_WRITE,WFI_STATE};
+        gc_issue_hold <= next_state inside {PRE_CLEAR_STATE, INIT_CLEAR_STATE, WAIT_INTERRUPT, PRE_ISSUE_FLUSH, TLB_CLEAR_STATE, WAIT_WRITE,WFI_STATE};
         gc_init_clear <= next_state inside {INIT_CLEAR_STATE};
         gc_fetch_ifence <= issue.new_request & is_ifence;
         gc_tlb_flush <= next_state inside {INIT_CLEAR_STATE, TLB_CLEAR_STATE};
@@ -290,6 +294,12 @@ module gc_unit
                     next_state = PRE_ISSUE_FLUSH;
                 else if (interrupt_pending)
                     next_state = WAIT_INTERRUPT;
+                else if (issue.new_request & is_wfi)
+                    next_state = WFI_STATE;
+            end
+            WFI_STATE : begin
+                 if (wfi_resumed) //Something cancelled the WFI
+                    next_state = IDLE_STATE;
             end
             WAIT_INTERRUPT : begin
                 if (gc.exception.valid | csr_frontend_flush) //Exception overrides interrupt
@@ -380,7 +390,7 @@ generate if (CONFIG.MODES != BARE) begin : gen_gc_m_mode
     assign gc.exception.valid = |exception_valid;
     assign gc.exception.source = exception_valid;
 
-    // leads to problem when not using the plic the CPU would get stuck: TODO: check the problem in this case.
+    
     // assign interrupt_taken = interrupt_pending & (state == WAIT_INTERRUPT) & (next_state == PRE_ISSUE_FLUSH) & ~gc.exception.valid & ~csr_frontend_flush;
     assign interrupt_taken = interrupt_pending & (next_state == PRE_ISSUE_FLUSH) & ~(gc.exception.valid) & ~csr_frontend_flush & ~(issue.new_request & ~is_wfi & ~new_exception);
     //Writeback and rename handling
@@ -429,6 +439,12 @@ end endgenerate
     //A CSR write is only committed once it is the oldest instruction in the pipeline
     //while processing a csr operation, gc_issue_hold prevents further instructions from being issued
     assign issue.ready = 1;
+
+
+    //WFI handling
+    //When a WFI is issued, the unit will hold in the WFI state until an interrupt is pending
+    //If an interrupt becomes pending while in the WFI state, the unit will transition to the WAIT_INTERRUPT state
+    assign wfi_accepted = (state == WFI_STATE);
 
     ////////////////////////////////////////////////////
     //End of Implementation

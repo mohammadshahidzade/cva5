@@ -94,7 +94,11 @@ module csr_unit
         //External
         input logic [63:0] mtime,
         input interrupt_t s_interrupt,
-        input interrupt_t m_interrupt
+        input interrupt_t m_interrupt,
+
+        //wfi support
+        input logic wfi_accepted,
+        output logic wfi_resumed
         );
 
     typedef struct packed{
@@ -139,7 +143,7 @@ module csr_unit
 
     logic exception_delegated;
     logic interrupt_delegated;
-    logic [ECODE_W-1:0] interrupt_cause;
+    logic [ECODE_W-1:0] interrupt_cause_r;
 
     function logic mwrite_en (input csr_addr_t addr);
         return mwrite & sub_write_en[addr.sub_addr];
@@ -357,7 +361,7 @@ generate if (CONFIG.MODES != BARE) begin : gen_csr_m_mode
 
     assign can_delegate = CONFIG.MODES == MSU & privilege_level inside {SUPERVISOR_PRIVILEGE, USER_PRIVILEGE};
     assign exception_delegated = can_delegate & exception_pkt.valid & medeleg[exception_pkt.code];
-    assign interrupt_delegated = can_delegate & interrupt_taken & mideleg[interrupt_cause];
+    assign interrupt_delegated = can_delegate & interrupt_taken & mideleg[interrupt_cause_r];
 
     one_hot_to_integer #(6)
     mstatus_case_one_hot (
@@ -560,6 +564,16 @@ if (CONFIG.MODES == MSU) begin : gen_supervisor_interrupts
     end
 end
 
+    //wfi support
+    always_ff @(posedge clk) begin
+        if (rst)
+            wfi_resumed <= 0;
+        else if (mip & mie)
+            wfi_resumed <= 1;
+        else
+            wfi_resumed <= 0;
+    end
+
     ////////////////////////////////////////////////////
     //MIE
     localparam mie_t mie_mask = '{default:0, meie:1, mtie:1, msie:1};
@@ -598,10 +612,10 @@ end
     //MCAUSE
     //Can be software written, written on exception or
     //interrupt with specific code
-    logic [5:0] mip_priority_vector;
+    logic [6:0] mip_priority_vector;
     logic [2:0] mip_cause_sel;
 
-    localparam logic [ECODE_W-1:0] interrupt_code_table [7:0] = '{ 0, 0, 
+    localparam logic [ECODE_W-1:0] interruput_code_table [7:0] = '{ 0, 0, 
         S_TIMER_INTERRUPT, S_SOFTWARE_INTERRUPT, S_EXTERNAL_INTERRUPT,
         M_TIMER_INTERRUPT, M_SOFTWARE_INTERRUPT, M_EXTERNAL_INTERRUPT
     };
@@ -611,7 +625,9 @@ end
     assign mip_priority_vector[2] = mip.mtip & mie.mtie;
     assign mip_priority_vector[3] = mip.seip & mie.seie & ~(privilege_level == MACHINE_PRIVILEGE & mideleg.seid); //Suppressed if delegated
     assign mip_priority_vector[4] = mip.ssip & mie.ssie & ~(privilege_level == MACHINE_PRIVILEGE & mideleg.ssid); //Suppressed if delegated
-    assign mip_priority_vector[5] = 1;
+    assign mip_priority_vector[5] = 1;//software timer interrupts
+    // assign mip_priority_vector[5] = mip.stip & mie.stie & ~(privilege_level == MACHINE_PRIVILEGE & mideleg.stid);//software timer interrupts
+    // assign mip_priority_vector[6] = 1; 
 
     priority_encoder #(.WIDTH(6))
     interrupt_cause_encoder (
@@ -619,7 +635,10 @@ end
         .encoded_result (mip_cause_sel)
     );
 
-    assign interrupt_cause = interrupt_code_table[mip_cause_sel];
+    always_comb begin
+        if (interrupt_pending)
+            interrupt_cause_r <= interruput_code_table[mip_cause_sel];
+    end
 
     always_ff @(posedge clk) begin
         mcause.zeros <= '0;
@@ -629,7 +648,7 @@ end
         end
         else if ((mwrite_en(MCAUSE) | (exception_pkt.valid & ~exception_delegated) | (interrupt_taken & ~interrupt_delegated))) begin
             mcause.is_interrupt <= interrupt_taken | (mwrite_en(MCAUSE) & updated_csr[31]);
-            mcause.code <= interrupt_taken ? interrupt_cause : exception_pkt.valid ? exception_pkt.code : updated_csr[ECODE_W-1:0];
+            mcause.code <= interrupt_taken ? interrupt_cause_r : exception_pkt.valid ? exception_pkt.code : updated_csr[ECODE_W-1:0];
         end
     end
 
@@ -765,7 +784,7 @@ generate if (CONFIG.MODES == MSU) begin : gen_csr_s_mode
         end
         else if ((swrite_en(SCAUSE) | (exception_pkt.valid & exception_delegated) | (interrupt_taken & interrupt_delegated))) begin
             scause.is_interrupt <= interrupt_taken | (swrite_en(SCAUSE) & updated_csr[31]);
-            scause.code <= interrupt_taken ? interrupt_cause : exception_pkt.valid ? exception_pkt.code : updated_csr[ECODE_W-1:0];
+            scause.code <= interrupt_taken ? interrupt_cause_r : exception_pkt.valid ? exception_pkt.code : updated_csr[ECODE_W-1:0];
         end
     end
 

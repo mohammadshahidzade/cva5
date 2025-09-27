@@ -178,6 +178,10 @@ module cva5
     logic instruction_issued_with_rd;
     logic fp_instruction_issued_with_rd;
 
+    //wfi support
+    logic wfi_accepted;
+    logic wfi_resumed;
+
     ////////////////////////////////////////////////////
     //Implementation
 
@@ -528,7 +532,9 @@ module cva5
             .retire_ids(retire_ids),
             .mtime(mtime),
             .s_interrupt(s_interrupt),
-            .m_interrupt(m_interrupt)
+            .m_interrupt(m_interrupt),
+            .wfi_accepted(wfi_accepted),
+            .wfi_resumed(wfi_resumed)
         );
     end endgenerate
 
@@ -562,7 +568,9 @@ module cva5
         .sepc(sepc),
         .interrupt_taken(interrupt_taken),
         .interrupt_pending(interrupt_pending),
-        .load_store_status(load_store_status)
+        .load_store_status(load_store_status),
+        .wfi_accepted(wfi_accepted),
+        .wfi_resumed(wfi_resumed)
     );
 
     generate if (CONFIG.INCLUDE_UNIT.MUL) begin : gen_mul
