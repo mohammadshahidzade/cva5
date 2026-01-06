@@ -527,7 +527,7 @@ module load_store_unit
     //When switching units, ensure no outstanding loads so that there can be no timing collisions with results
     assign unit_switch = lsq.load_valid & (subunit_id != last_unit) & load_attributes.valid;
     always_ff @ (posedge clk) begin
-        unit_switch_in_progress <= (unit_switch_in_progress | unit_switch) & ~load_attributes.valid;
+        unit_switch_in_progress <= (unit_switch_in_progress | unit_switch) & load_attributes.valid;
     end
     assign unit_switch_hold = unit_switch | unit_switch_in_progress | fiom_amo_hold;
 
@@ -669,7 +669,8 @@ module load_store_unit
             logic uncacheable_load;
             logic uncacheable_store;
 
-            assign sub_unit_address_match[DCACHE_ID] = dcache_addr_utils.address_range_check(tlb.physical_address);
+            assign sub_unit_address_match[DCACHE_ID] = dcache_addr_utils.address_range_check(tlb.physical_address)
+            & ~dlocal_mem_addr_utils.address_range_check(tlb.physical_address);//~dpbus_addr_utils.address_range_check(tlb.physical_address);
 
             assign uncacheable_load = CONFIG.DCACHE.USE_NON_CACHEABLE & uncacheable_utils.address_range_check(shared_inputs.addr);
             assign uncacheable_store = CONFIG.DCACHE.USE_NON_CACHEABLE & uncacheable_utils.address_range_check(shared_inputs.addr);
