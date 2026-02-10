@@ -171,7 +171,7 @@ module litex_wrapper
                 DIV : 1,
                 CSR : 1,
                 FPU : 0,
-                CUSTOM : 0,
+                CUSTOM : 1,
                 default: '0
             },
             INCLUDE_IFENCE : 1,

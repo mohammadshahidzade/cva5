@@ -41,7 +41,9 @@ module custom_unit
         input logic [31:0] rf [REGFILE_READ_PORTS],
 
         unit_issue_interface.unit issue,
-        unit_writeback_interface.unit wb
+        unit_writeback_interface.unit wb,
+
+        tlb_interface.requester tlb
     );
     common_instruction_t instruction;//rs1_addr, rs2_addr, fn3, fn7, rd_addr, upper/lower opcode
     logic [31:0] result;
@@ -67,27 +69,59 @@ module custom_unit
     end
     ////////////////////////////////////////////////////
     //Issue
-    assign issue.ready = ~wb.done;
+    // assign issue.ready = ~wb.done;
+    always_ff @(posedge clk) begin
+        if (rst)
+            issue.ready <= 1'b1;
+        else if ((tlb.done || tlb.is_fault) && issue.ready == 1'b0)
+            issue.ready <= 1'b1;
+        else if (issue.new_request)
+            issue.ready <= 1'b0;
+    end
 
     always_ff @(posedge clk) begin
         if (issue.new_request)
             id <=  issue.id;
     end
 
-    always_ff @(posedge clk) begin
-        if (issue.new_request)
-           result <= rf[RS1] + rf[RS2];
-    end
+    // logic in_custom;
+
+    // always_ff @(posedge clk) begin
+    //     if(rst)
+    //         in_custom = 1'b0;
+    //     if (issue.new_request)
+    //         in_custom = 1'b1;
+    //     else if((tlb.done || tlb.is_fault))
+    //         in_custom = 1'b0;
+    // end
+
+    // always_ff @(posedge clk) begin
+    //     if (issue.new_request)
+    //        result <= rf[RS1] + rf[RS2];
+    // end
 
     ////////////////////////////////////////////////////
     //Write-back
-    assign wb.rd = result;
+    // assign wb.rd = result;
+    always_ff @(posedge clk) begin
+        if(tlb.done)
+            wb.rd <= tlb.physical_address;
+    end
+    // assign wb.rd = tlb.physical_address;
+
+    // always_ff @ (posedge clk) begin
+    //     if (rst)
+    //         wb.done <= 0;
+    //     else
+    //         wb.done <= (wb.done & ~wb.ack) | issue.new_request;
+    // end
+
 
     always_ff @ (posedge clk) begin
         if (rst)
             wb.done <= 0;
         else
-            wb.done <= (wb.done & ~wb.ack) | issue.new_request;
+            wb.done <= (wb.done & ~wb.ack) | (tlb.done & ~issue.ready);
     end
     assign wb.id = id;
 endmodule

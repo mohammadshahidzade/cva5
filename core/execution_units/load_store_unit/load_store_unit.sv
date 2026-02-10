@@ -185,13 +185,15 @@ module load_store_unit
     assign unit_needed = instruction inside {LB, LH, LW, LBU, LHU, SB, SH, SW, FENCE} | 
         (CONFIG.INCLUDE_CBO & instruction inside {CBO_INVAL, CBO_CLEAN, CBO_FLUSH}) | 
         (CONFIG.INCLUDE_UNIT.FPU & instruction inside {SP_FLW, SP_FSW, DP_FLD, DP_FSD}) | 
-        (CONFIG.INCLUDE_AMO & instruction inside {AMO_ADD, AMO_XOR, AMO_OR, AMO_AND, AMO_MIN, AMO_MAX, AMO_MINU, AMO_MAXU, AMO_SWAP, AMO_LR, AMO_SC});
+        (CONFIG.INCLUDE_AMO & instruction inside {AMO_ADD, AMO_XOR, AMO_OR, AMO_AND, AMO_MIN, AMO_MAX, AMO_MINU, AMO_MAXU, AMO_SWAP, AMO_LR, AMO_SC}) |
+        (CONFIG.INCLUDE_UNIT.CUSTOM & instruction inside {CUSTOM});
     always_comb begin
         uses_rs = '0;
         uses_rs[RS1] = instruction inside {LB, LH, LW, LBU, LHU, SB, SH, SW} | 
             (CONFIG.INCLUDE_CBO & instruction inside {CBO_INVAL, CBO_CLEAN, CBO_FLUSH}) | 
             (CONFIG.INCLUDE_UNIT.FPU & instruction inside {SP_FLW, SP_FSW, DP_FLD, DP_FSD}) |
-            (CONFIG.INCLUDE_AMO & instruction inside {AMO_ADD, AMO_XOR, AMO_OR, AMO_AND, AMO_MIN, AMO_MAX, AMO_MINU, AMO_MAXU, AMO_SWAP, AMO_LR, AMO_SC});
+            (CONFIG.INCLUDE_AMO & instruction inside {AMO_ADD, AMO_XOR, AMO_OR, AMO_AND, AMO_MIN, AMO_MAX, AMO_MINU, AMO_MAXU, AMO_SWAP, AMO_LR, AMO_SC}) |
+            (CONFIG.INCLUDE_UNIT.CUSTOM & instruction inside {CUSTOM});
         if (CONFIG.INCLUDE_AMO)
             uses_rs[RS2] = instruction inside {AMO_ADD, AMO_XOR, AMO_OR, AMO_AND, AMO_MIN, AMO_MAX, AMO_MINU, AMO_MAXU, AMO_SWAP, AMO_SC};
         if (~CONFIG.INCLUDE_FORWARDING_TO_STORES)
@@ -202,9 +204,21 @@ module load_store_unit
         fp_uses_rd = CONFIG.INCLUDE_UNIT.FPU & instruction inside {SP_FLW, DP_FLD};
     end
 
+
+
+    logic is_custom;
+    always_ff @(posedge clk) begin
+        if (rst)
+            is_custom <= 1'b0;
+        else if (issue.new_request)
+            is_custom <= issue_attr.is_custom;
+        else if((tlb.done || tlb.is_fault))
+            is_custom <= 1'b0;
+    end
     ////////////////////////////////////////////////////
     //LS specific decode support
     typedef struct packed{
+        logic is_custom;
         logic is_load;
         logic is_store;
         logic is_fence;
@@ -261,18 +275,19 @@ module load_store_unit
     end
 
     assign decode_attr = '{
-        is_load : ~instruction.upper_opcode[5] & ~instruction.upper_opcode[3],
+        is_custom : instruction inside {CUSTOM},
+        is_load : (~instruction.upper_opcode[5] & ~instruction.upper_opcode[3]) & ~(instruction inside {CUSTOM}),
         is_store : instruction inside {SB, SH, SW} | CONFIG.INCLUDE_UNIT.FPU & instruction inside {SP_FSW, DP_FSD},
-        is_fence : ~instruction.fn3[1] & instruction.upper_opcode[3],
-        nontrivial_fence : nontrivial_fence,
+        is_fence : (~instruction.fn3[1] & instruction.upper_opcode[3]) & ~(instruction inside {CUSTOM}),
+        nontrivial_fence : nontrivial_fence & ~(instruction inside {CUSTOM}),
         is_cbo : CONFIG.INCLUDE_CBO & instruction inside {CBO_INVAL, CBO_CLEAN, CBO_FLUSH},
         cbo_type : cbo_t'(instruction[21:20]),
         is_fpu : CONFIG.INCLUDE_UNIT.FPU & instruction.upper_opcode[3:2] == 2'b01,
         is_double : CONFIG.INCLUDE_UNIT.FPU & instruction.fn3[1:0] == 2'b11,
-        is_amo : CONFIG.INCLUDE_AMO & instruction.upper_opcode[3] & instruction.upper_opcode[5],
+        is_amo : (CONFIG.INCLUDE_AMO & instruction.upper_opcode[3] & instruction.upper_opcode[5]) & ~(instruction inside {CUSTOM}),
         amo_type : amo_t'(instruction[31:27]),
         rd_zero : ~|instruction.rd_addr,
-        offset : (CONFIG.INCLUDE_CBO | CONFIG.INCLUDE_AMO) & instruction[3] ? '0 : (instruction[5] ? store_offset : load_offset)
+        offset : ((CONFIG.INCLUDE_CBO | CONFIG.INCLUDE_AMO) & instruction[3]) | instruction inside {CUSTOM} ? '0 : (instruction[5] ? store_offset : load_offset)
     };
     assign decode_is_store = decode_attr.is_store | decode_attr.is_cbo; //Must be exact
 
@@ -486,7 +501,7 @@ module load_store_unit
     };
 
     assign lsq.potential_push = issue.possible_issue;
-    assign lsq.push = issue.new_request & ~issue_attr.is_fence;
+    assign lsq.push = issue.new_request & ~issue_attr.is_fence & ~issue_attr.is_custom;
 
     load_store_queue  # (.CONFIG(CONFIG)) lsq_block (
         .clk (clk),
@@ -504,7 +519,7 @@ module load_store_unit
     assign lsq.store_pop = sub_unit_store_issue;
 
     //Physical address passed separately
-    assign lsq.addr_push = tlb.done | tlb.is_fault | exception_lsq_push;
+    assign lsq.addr_push = (tlb.done  | tlb.is_fault | exception_lsq_push ) & ~is_custom;
     assign lsq.addr_data_in = '{
         addr : tlb.physical_address[31:12],
         rnw : tlb_lq,
@@ -592,6 +607,15 @@ module load_store_unit
         .rst (rst), 
         .fifo (load_attributes)
     );
+
+    // ila_0 ila (
+    //     .clk(clk), // input wire clk
+    //     .probe0(unit_ready[0]), // input wire [0:0]  probe0  
+    //     .probe1(unit_ready[1]), // input wire [1:0]  probe1 
+    //     .probe2(sub_unit_address_match),
+    //     .probe3(unit_switch_hold),
+    //     .probe4(sub_unit_ready)
+    // );
 
     assign load_attributes.pop = load_complete;
     assign wb_attr = load_attributes.data_out;

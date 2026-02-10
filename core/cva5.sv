@@ -621,7 +621,8 @@ module cva5
             .issue_stage_ready (issue_stage_ready),
             .rf (rf_issue.data),
             .issue (unit_issue[CUSTOM_ID]),
-            .wb (unit_wb[CUSTOM_ID])
+            .wb (unit_wb[CUSTOM_ID]),
+            .tlb (dtlb)
         );
     end endgenerate
 
