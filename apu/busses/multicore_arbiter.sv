@@ -45,7 +45,59 @@ module multicore_arbiter
         input logic request_rvalid,
         input logic[31:0] request_rdata,
         input logic[1+$clog2(NUM_CORES):0] request_rid,
-        input logic[NUM_CORES-1:0] write_outstanding
+        input logic[NUM_CORES-1:0] write_outstanding,
+
+        input logic stream0_vld,
+        input logic stream0_rdy,
+        input logic[31:0] stream0_addr,
+        input logic[7:0] stream0_len,
+        input logic stream1_vld,
+        input logic stream1_rdy,
+        input logic[31:0] stream1_addr,
+        input logic[7:0] stream1_len,
+        input logic stream2_vld,
+        input logic stream2_rdy,
+        input logic[31:0] stream2_addr,
+        input logic[7:0] stream2_len
+    );
+
+
+    // Signals to connect to the invalidation logic
+    logic [31:0] out_inv_addr;
+    logic        inv_hold;
+
+    logic [31:0] out_inv_addr_reg;
+    logic       inv_hold_reg;
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            out_inv_addr_reg <= 32'b0;
+            inv_hold_reg <= 1'b0;
+        end else begin
+            out_inv_addr_reg <= out_inv_addr;
+            inv_hold_reg <= inv_hold;
+        end
+    end
+
+    // Instance
+    accelerator_invalidation u_inv_logic (
+        .clk              (clk),
+        .rst_n            (~rst),
+        
+        // Inputs (Mapping your 3 streams)
+        .vld_in           ({stream2_vld,  stream1_vld,  stream0_vld}),
+        .rdy_in           ({stream2_rdy,  stream1_rdy,  stream0_rdy}),
+        
+        // Using array literals to pass address and length
+        .addr_in          ('{stream0_addr, stream1_addr, stream2_addr}),
+        .len_in           ('{stream0_len,  stream1_len,  stream2_len}),
+        
+        // Configuration
+        .NON_CACHABLE_L   (32'h7F000000), // Example non-cachable range (1GB and above)
+        .NON_CACHABLE_H   (32'hFFFFFFFF),
+        
+        // Outputs
+        .inv_addr_out     (out_inv_addr),
+        .hold_out         (inv_hold) 
     );
 
     //Multiplexes memory requests and submits invalidations
@@ -104,8 +156,8 @@ module multicore_arbiter
         assign id[i] = mems[i].id;
         assign acks[i] = request_push & i == int'(chosen_port);
         assign mems[i].ack = acks[i];
-        assign mems[i].inv_addr = in_req.addr;
-        assign mems[i].inv = request_push & ~in_req.rnw & i != int'(chosen_port);
+        assign mems[i].inv_addr = inv_hold_reg ? out_inv_addr_reg[31:2] : in_req.addr;
+        assign mems[i].inv = (request_push & ~in_req.rnw & i != int'(chosen_port)) | inv_hold_reg;
         assign mems[i].rvalid = rvalids[i];
         assign mems[i].rdata = request_rdata;
         assign mems[i].rid = request_rid[1:0];
@@ -136,7 +188,7 @@ module multicore_arbiter
     assign rmw_hit = |(requests & accept_request_from_rmw_core);
 
     //Request FIFO
-    assign request_push = ~request_fifo.full & |requests & (~rmw_is_on | rmw_hit);
+    assign request_push = ~request_fifo.full & |requests & (~rmw_is_on | rmw_hit) & ~inv_hold;
     assign request_fifo.data_in = in_req;
     assign out_req = request_fifo.data_out;
     assign request_valid = request_fifo.valid;

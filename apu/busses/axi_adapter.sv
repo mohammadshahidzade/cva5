@@ -29,7 +29,21 @@ module axi_adapter
         input logic rst,
 
         mem_interface.mem_slave mems[NUM_CORES-1:0],
-        axi_interface.master axi
+        axi_interface.master axi,
+
+
+        input logic stream0_vld,
+        input logic stream0_rdy,
+        input logic[31:0] stream0_addr,
+        input logic[7:0] stream0_len,
+        input logic stream1_vld,
+        input logic stream1_rdy,
+        input logic[31:0] stream1_addr,
+        input logic[7:0] stream1_len,
+        input logic stream2_vld,
+        input logic stream2_rdy,
+        input logic[31:0] stream2_addr,
+        input logic[7:0] stream2_len
     );
 
     localparam MAX_OUTSTANDING = 8;

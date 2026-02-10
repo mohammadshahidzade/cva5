@@ -137,7 +137,21 @@ module litex_wrapper
         output logic [31:0] arbiter_bram_wdata,
         input logic [31:0] arbiter_bram_rdata,
         output logic [3:0] arbiter_bram_be,
-        output logic arbiter_bram_en
+        output logic arbiter_bram_en,
+
+
+        input logic stream0_vld,
+        input logic stream0_rdy,
+        input logic[31:0] stream0_addr,
+        input logic[7:0] stream0_len,
+        input logic stream1_vld,
+        input logic stream1_rdy,
+        input logic[31:0] stream1_addr,
+        input logic[7:0] stream1_len,
+        input logic stream2_vld,
+        input logic stream2_rdy,
+        input logic[31:0] stream2_addr,
+        input logic[7:0] stream2_len
     );
 
     localparam wb_group_config_t STANDARD_WB_GROUP_CONFIG = '{
