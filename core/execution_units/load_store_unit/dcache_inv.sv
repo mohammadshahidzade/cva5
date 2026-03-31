@@ -413,6 +413,7 @@ module dcache_inv
                 mem.wdata = stage1.wdata;
                 mem.rnw = 0;
                 mem.rmw = 0;
+                mem.sc = 0;
                 stage1_tb_write = 0;
                 stage1_tb_wval = 'x;
                 db_wen = stage0_advance_r & hit & ~stage1.uncacheable;
@@ -427,6 +428,7 @@ module dcache_inv
                 mem.wdata = 'x;
                 mem.rnw = 0;
                 mem.rmw = 0;
+                mem.sc = 0;
                 stage1_tb_write = ~stage1.uncacheable & mem.ack & (stage0_advance_r ? hit : hit_r);
                 stage1_tb_wval = 0;
                 db_wen = 0;
@@ -441,6 +443,7 @@ module dcache_inv
                 mem.wdata = 'x;
                 mem.rnw = 1;
                 mem.rmw = 0;
+                mem.sc = 0;
                 stage1_tb_write = ~stage1.uncacheable & mem.ack;
                 stage1_tb_wval = 1;
                 db_wen = mem.rvalid & ~stage1.uncacheable;
@@ -455,6 +458,7 @@ module dcache_inv
                 mem.wdata = stage1.wdata;
                 mem.rnw = 0;
                 mem.rmw = 0;
+                mem.sc = 1'b1;
                 stage1_tb_write = 0;
                 stage1_tb_wval = 'x;
                 db_wen = ~stage1.uncacheable & mem.ack;
@@ -469,6 +473,7 @@ module dcache_inv
                 mem.wdata = amo_unit.rd;
                 mem.rnw = rmw_mem_rnw;
                 mem.rmw = 1;
+                mem.sc = 0;
                 stage1_tb_write = rmw_stage1_tb_write;
                 stage1_tb_wval = 1;
                 db_wen = rmw_db_wen;

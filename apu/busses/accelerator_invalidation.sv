@@ -16,14 +16,13 @@ module accelerator_invalidation (
     output logic [31:0] inv_addr_out,
     output logic        hold_out
 );
-
     // Cache Parameters
     // If LINE_W is 8, it usually implies a 256-bit line (32 bytes)
     localparam int LINE_SIZE_BYTES = 32; 
 
     // Internal State
     logic [31:0] next_addr [3];
-    logic [8:0] remaining [3];
+    logic [9:0] remaining [3];
     logic [1:0]  rr_ptr;
 
     // Helper Function: Check if address is CACHABLE
@@ -55,14 +54,21 @@ module accelerator_invalidation (
         if (!rst_n) begin
             for (int i = 0; i < 3; i++) begin
                 next_addr[i] <= 32'h0;
-                remaining[i] <= 9'h0;
+                remaining[i] <= 10'h0;
             end
         end else begin
             for (int i = 0; i < 3; i++) begin
                 if (vld_in[i] && rdy_in[i]) begin
                     // Initial capture: Align address to cache line start if necessary
-                    next_addr[i] <= addr_in[i]; 
-                    remaining[i] <= {len_in[i], 1'b1};
+                    if({remaining[i],2'b00}+next_addr[i] == addr_in[i]-2'h20) begin
+                        next_addr[i] <= next_addr[i]; // Hold current address if we're still processing 
+                        remaining[i] <= remaining[i] + {len_in[i], 1'b0}+2'b10;
+                    end else begin
+                        next_addr[i] <= addr_in[i];
+                        remaining[i] <= {len_in[i], 1'b0}+2'b10;
+                        // next_addr[i] <= { addr_in[i][31:5] + 1'b1, 5'b0 };
+                        // remaining[i] <= ({len_in[i], 1'b0} + 2'b10) ? ({len_in[i], 1'b0} + 2'b10) - 1 : 0;
+                    end 
                 end 
                 // Only update if this stream is chosen AND it's valid/cachable
                 else if (rr_ptr == i && remaining[i] > 0 && is_cachable(next_addr[i])) begin

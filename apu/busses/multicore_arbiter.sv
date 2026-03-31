@@ -66,18 +66,6 @@ module multicore_arbiter
     logic [31:0] out_inv_addr;
     logic        inv_hold;
 
-    logic [31:0] out_inv_addr_reg;
-    logic       inv_hold_reg;
-    always_ff @(posedge clk) begin
-        if (rst) begin
-            out_inv_addr_reg <= 32'b0;
-            inv_hold_reg <= 1'b0;
-        end else begin
-            out_inv_addr_reg <= out_inv_addr;
-            inv_hold_reg <= inv_hold;
-        end
-    end
-
     // Instance
     accelerator_invalidation u_inv_logic (
         .clk              (clk),
@@ -114,6 +102,7 @@ module multicore_arbiter
         logic[31:0] wdata;
         full_id_t id;
         logic rmw;
+        logic sc;
     } request_t;
     request_t in_req;
     request_t out_req;
@@ -125,6 +114,7 @@ module multicore_arbiter
     logic[NUM_CORES-1:0][4:0] rlen;
     logic[NUM_CORES-1:0] rnw;
     logic[NUM_CORES-1:0] rmw;
+    logic[NUM_CORES-1:0] atomic_sc;
     logic[NUM_CORES-1:0][3:0] wbe;
     logic[NUM_CORES-1:0][31:0] wdata;
     logic[NUM_CORES-1:0][1:0] id;
@@ -154,10 +144,11 @@ module multicore_arbiter
         assign wbe[i] = mems[i].wbe;
         assign wdata[i] = mems[i].wdata;
         assign id[i] = mems[i].id;
+        assign atomic_sc[i] = mems[i].sc;
         assign acks[i] = request_push & i == int'(chosen_port);
         assign mems[i].ack = acks[i];
-        assign mems[i].inv_addr = inv_hold_reg ? out_inv_addr_reg[31:2] : in_req.addr;
-        assign mems[i].inv = (request_push & ~in_req.rnw & i != int'(chosen_port)) | inv_hold_reg;
+        assign mems[i].inv_addr = inv_hold ? out_inv_addr[31:2] : in_req.addr;
+        assign mems[i].inv = (request_push & ~in_req.rnw & i != int'(chosen_port)) | inv_hold;
         assign mems[i].rvalid = rvalids[i];
         assign mems[i].rdata = request_rdata;
         assign mems[i].rid = request_rid[1:0];
@@ -178,17 +169,43 @@ module multicore_arbiter
     always_ff @(posedge clk) begin
         if (rst)
             rmw_is_on <= 0;
-        else if (in_req.rmw & request_push)
+        else if (in_req.rmw & request_push & in_req.rnw)//if it was a read from a rmw request make sure the write is done first before releasing
             rmw_is_on <= 1;
-        else if (~in_req.rmw)
+        else if (in_req.rmw & request_push & ~in_req.rnw)//if it was a write free the on signal to choose the next port
             rmw_is_on <= 0;
     end
 
     assign accept_request_from_rmw_core = (rmw_is_on ? (1'b1 << rmw_index) : {NUM_CORES{1'b1}});
     assign rmw_hit = |(requests & accept_request_from_rmw_core);
 
+    logic sc_core_invalid;
+    assign sc_core_invalid = (requests[chosen_port]==1'b0 & in_req.sc==1'b1);
+
+
+    logic sc_wait_sel;
+    logic sc_wait;
+    always_comb begin
+        if (sc_wait_sel) begin
+            sc_wait = in_req.sc;  // If sel is 1, output b
+        end else begin
+            sc_wait = 1'b0;  // If sel is 0, output a
+        end
+    end
+    always_ff @(posedge clk)begin
+        if(rst)begin
+            sc_wait_sel <= 1'b1;
+        end else if(sc_core_invalid)begin
+            sc_wait_sel <= 1'b1;
+        end else if(in_req.sc)begin
+            sc_wait_sel <= 1'b0;
+        end else if(request_push)begin
+            sc_wait_sel <= 1'b1;
+        end
+    end
+
+
     //Request FIFO
-    assign request_push = ~request_fifo.full & |requests & (~rmw_is_on | rmw_hit) & ~inv_hold;
+    assign request_push = ~request_fifo.full & |requests & (~rmw_is_on | rmw_hit) & (~sc_wait & ~sc_core_invalid) & ~inv_hold;
     assign request_fifo.data_in = in_req;
     assign out_req = request_fifo.data_out;
     assign request_valid = request_fifo.valid;
@@ -207,7 +224,7 @@ module multicore_arbiter
     //Arbitration
     round_robin #(.NUM_PORTS(NUM_CORES)) rr (
         .requests(requests & accept_request_from_rmw_core),
-        .grant(request_push),
+        .grant(request_push | sc_core_invalid),
         .grantee(chosen_port),
     .*);
 
@@ -219,7 +236,8 @@ module multicore_arbiter
         wbe : wbe[chosen_port],
         wdata : wdata[chosen_port],
         id : padded_id,
-        rmw : rmw[chosen_port]
+        rmw : rmw[chosen_port],
+        sc : atomic_sc[chosen_port]
     };
 
     generate if (NUM_CORES == 1) begin : gen_no_id

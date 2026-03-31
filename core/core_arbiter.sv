@@ -46,6 +46,7 @@ module core_arbiter
     logic[3:0][4:0] rlen;
     logic[3:0] rnw;
     logic[3:0] rmw;
+    logic[3:0] sc;
     logic[1:0] port;
 
     ////////////////////////////////////////////////////
@@ -57,6 +58,7 @@ module core_arbiter
     assign rlen[0] = INCLUDE_DCACHE ? dcache.rlen : 'x;
     assign rnw[0] = INCLUDE_DCACHE ? dcache.rnw : 'x;
     assign rmw[0] = INCLUDE_DCACHE ? dcache.rmw : 'x;
+    assign sc[0] = INCLUDE_DCACHE ? dcache.sc : 'x;
     assign mem.wbe = dcache.wbe;
     assign mem.wdata = dcache.wdata;
     assign dcache.inv = mem.inv;
@@ -71,6 +73,7 @@ module core_arbiter
     assign rlen[1] = INCLUDE_ICACHE ? icache.rlen : 'x;
     assign rnw[1] = INCLUDE_ICACHE ? 1 : 'x;
     assign rmw[1] = INCLUDE_ICACHE ? 0 : 'x;
+    assign sc[1] = INCLUDE_ICACHE ? 0 : 'x;
     assign icache.ack = mem.ack & port == 2'b01;
     assign icache.rvalid = mem.rvalid & mem.rid == 2'b01;
     assign icache.rdata = mem.rdata;
@@ -80,6 +83,7 @@ module core_arbiter
     assign rlen[2] = INCLUDE_MMUS ? dmmu.rlen : 'x;
     assign rnw[2] = INCLUDE_MMUS ? 1 : 'x;
     assign rmw[2] = INCLUDE_MMUS ? 0 : 'x;
+    assign sc[2] = INCLUDE_MMUS ? 0 : 'x;
     assign dmmu.rdata = mem.rdata;
     assign dmmu.ack = mem.ack & port == 2'b10;
     assign dmmu.rvalid = mem.rvalid & mem.rid == 2'b10;
@@ -89,6 +93,7 @@ module core_arbiter
     assign rlen[3] = INCLUDE_MMUS ? immu.rlen : 'x;
     assign rnw[3] = INCLUDE_MMUS ? 1 : 'x;
     assign rmw[3] = INCLUDE_MMUS ? 0 : 'x;
+    assign sc[3] = INCLUDE_MMUS ? 0 : 'x;
     assign immu.rdata = mem.rdata;
     assign immu.ack = mem.ack & port == 2'b11;
     assign immu.rvalid = mem.rvalid & mem.rid == 2'b11;
@@ -107,6 +112,7 @@ module core_arbiter
     assign mem.rlen = rlen[port];
     assign mem.rnw = rnw[port];
     assign mem.rmw = rmw[port];
+    assign mem.sc = sc[port];
     assign mem.id = port;
 
 endmodule
