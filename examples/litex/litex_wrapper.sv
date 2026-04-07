@@ -255,10 +255,10 @@ module litex_wrapper
                 L : 32'h80000000,
                 H : 32'h8FFFFFFF
             },
-            INCLUDE_DLOCAL_MEM : 0,
+            INCLUDE_DLOCAL_MEM : 1,
             DLOCAL_MEM_ADDR : '{
-                L : 32'h80000000,
-                H : 32'h8FFFFFFF
+                L : 32'hC0000000,
+                H : 32'hC000FFFF
             },
             INCLUDE_IBUS : 0,
             IBUS_ADDR : '{
@@ -267,10 +267,10 @@ module litex_wrapper
             },
             INCLUDE_PERIPHERAL_BUS : 0,
             PERIPHERAL_BUS_ADDR : '{
-                L : 32'h00000000,
-                H : 32'hFFFFFFFF
+                L : 32'hC0000000,
+                H : 32'hC000FFFF
             },
-            PERIPHERAL_BUS_TYPE : WISHBONE_BUS,
+            PERIPHERAL_BUS_TYPE : AXI_BUS,
             //Branch Predictor Options
             INCLUDE_BRANCH_PREDICTOR : 1,
             BP : '{

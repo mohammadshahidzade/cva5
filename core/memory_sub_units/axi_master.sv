@@ -116,7 +116,7 @@ module axi_master
             end
             REQUESTING_WRITE : begin //Wait for write (address and data) to be accepted
                 m_axi.awvalid <= m_axi.awvalid & ~m_axi.awready;
-                m_axi.wvalid <= m_axi.wvalid & ~m_axi.wready;
+                m_axi.wvalid <= m_axi.wvalid & ~ (m_axi.wready & (m_axi.awready | ~m_axi.awvalid));
                 if ((~m_axi.awvalid | m_axi.awready) & (~m_axi.wvalid | m_axi.wready))
                     current_state <= WAITING_WRITE;
             end

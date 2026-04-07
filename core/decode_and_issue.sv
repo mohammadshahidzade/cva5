@@ -150,9 +150,16 @@ module decode_and_issue
     localparam units_t [MAX_NUM_UNITS-1:0] WB_UNITS_TYPE_REP = get_wb_units_type_representation(CONFIG.WB_GROUP);
     logic [CONFIG.NUM_WB_GROUPS-1:0] uses_wb_group;
     
+
+    logic [MAX_NUM_UNITS-1:0] unit_needed_selected;
+
+    assign unit_needed_selected = unit_needed[CUSTOM_ID] ?
+                              (1 << CUSTOM_ID) : 
+                              unit_needed;
+    
     always_comb begin
         for (int i = 0; i < CONFIG.NUM_WB_GROUPS; i++)
-            uses_wb_group[i] = |(unit_needed & WB_UNITS_TYPE_REP[i]);
+            uses_wb_group[i] = |(unit_needed_selected & WB_UNITS_TYPE_REP[i]);
     end
 
     one_hot_to_integer #(.C_WIDTH(CONFIG.NUM_WB_GROUPS))
